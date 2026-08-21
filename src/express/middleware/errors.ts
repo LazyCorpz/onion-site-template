@@ -1,4 +1,5 @@
 import { type ErrorRequestHandler, type RequestHandler } from 'express';
+import { isConnected } from '../db/connection';
 import { http } from '../utils';
 
 /**
@@ -40,8 +41,11 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
     res.statusMessage ??= http.names[res.statusCode];
 
     if (res.statusCode < 400 || res.statusCode >= 600) {
-        res.statusCode = http.codes.INTERNAL_SERVER_ERROR;
-        res.statusMessage = http.names[http.codes.INTERNAL_SERVER_ERROR];
+        // A failure with no database behind it is not the client's fault
+        res.statusCode = isConnected()
+            ? http.codes.INTERNAL_SERVER_ERROR
+            : http.codes.SERVICE_UNAVAILABLE;
+        res.statusMessage = http.names[res.statusCode];
     }
 
     const args = {

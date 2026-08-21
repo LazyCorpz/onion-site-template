@@ -1,15 +1,11 @@
-import mongoose from 'mongoose';
 import app from './app';
+import { connect, reconnectOnDisconnect } from './db/connection';
 import { msgBoard } from './env';
 
 const port = 3000;
 
-try {
-    await mongoose.connect(msgBoard.uri);
-}
-catch (err) {
-    console.error('Failed to connect to database:', err);
-}
+reconnectOnDisconnect(msgBoard.uri);
+void connect(msgBoard.uri);
 
 app.listen(port, () => {
     console.log('Server is running!');

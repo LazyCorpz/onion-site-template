@@ -110,7 +110,7 @@ describe('routes', () => {
         assert.equal(res.status, 400);
     });
 
-    it('reports a failed query without leaking the cause', async (t: TestContext) => {
+    it('serves 503 when a query fails with no database behind it', async (t: TestContext) => {
         t.mock.method(MsgModel, 'aggregate', () => ({
             exec: () => Promise.reject(new Error('connection refused'))
         }) as unknown as ReturnType<typeof MsgModel.aggregate>);
@@ -118,7 +118,7 @@ describe('routes', () => {
         const res = await fetch(base + '/chat');
         const body = await res.text();
 
-        assert.equal(res.status, 500);
+        assert.equal(res.status, 503);
         assert.doesNotMatch(body, /connection refused/);
     });
 });
