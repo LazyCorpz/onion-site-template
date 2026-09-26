@@ -32,6 +32,16 @@ CASES = [
     ('Cookie 20 KB', req('GET / HTTP/1.1', H + 'Cookie: c=' + 'x' * 20000 + '\r\n')),
     ('TE + CL', req('POST / HTTP/1.1', H + 'Transfer-Encoding: chunked\r\nContent-Length: 3\r\n', b'0\r\n\r\n')),
     ('GET /error.html', req('GET /error.html HTTP/1.1')),
+    ('HEAD /error.html', req('HEAD /error.html HTTP/1.1')),
+    ('TRACE + CL 2 MB', req('TRACE / HTTP/1.1', H + 'Content-Length: 2000000\r\n')),
+    ('TRACE bad chunk', req('TRACE / HTTP/1.1', H + 'Transfer-Encoding: chunked\r\n', b'zz\r\n\r\n')),
+    ('PUT bad chunk', req('PUT / HTTP/1.1', H + 'Transfer-Encoding: chunked\r\n', b'zz\r\n\r\n')),
+    ('DELETE bad chunk', req('DELETE / HTTP/1.1', H + 'Transfer-Encoding: chunked\r\n', b'zz\r\n\r\n')),
+    ('TRACE TE gzip', req('TRACE / HTTP/1.1', H + 'Transfer-Encoding: gzip\r\n')),
+    ('GET /error.html + CL 2 MB', req('GET /error.html HTTP/1.1', H + 'Content-Length: 2000000\r\n')),
+    ('GET /error.html bad chunk', req('GET /error.html HTTP/1.1', H + 'Transfer-Encoding: chunked\r\n', b'zz\r\n\r\n')),
+    ('POST /error.html bad chunk', req('POST /error.html HTTP/1.1', H + 'Transfer-Encoding: chunked\r\n', b'zz\r\n\r\n')),
+    ('GET /%65rror.html + CL 2 MB', req('GET /%65rror.html HTTP/1.1', H + 'Content-Length: 2000000\r\n')),
     ('GET /nonexistent', req('GET /nonexistent HTTP/1.1')),
 ]
 

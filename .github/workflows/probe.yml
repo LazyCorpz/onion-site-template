@@ -24,23 +24,24 @@ jobs:
           gw=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
           port=8081
           targets=''
-          for v in before uri uri494 lua luauri; do
-            for up in live dead; do
-              d="/tmp/run/$v-$up"
-              mkdir -p "$d/conf.d"
-              cp src/nginx/conf/nginx.conf "$d/nginx.conf"
-              cp -r src/nginx/html "$d/html"
-              cp ".github/probe/variants/$v/default.conf" "$d/conf.d/default.conf"
-              if [ "$up" = live ]; then addr="http://${gw}:3000"; else addr='http://127.0.0.1:9'; fi
-              docker run -d --name "$v-$up" -p "$port:80" \
-                -e PROXY_ADDRESS="$addr" -e USE_ONION_LOCATION=0 \
-                -v "$d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf" \
-                -v "$d/conf.d:/etc/nginx/conf.d" \
-                -v "$d/html:/usr/local/openresty/nginx/html:ro" \
-                nginx-probe > /dev/null
-              targets="$targets $v/$up=$port"
-              port=$((port + 1))
-            done
+          for spec in before:live before:dead final:live final:dead before:missing final:missing; do
+            v=${spec%%:*}
+            up=${spec#*:}
+            d="/tmp/run/$v-$up"
+            mkdir -p "$d/conf.d"
+            cp src/nginx/conf/nginx.conf "$d/nginx.conf"
+            cp -r src/nginx/html "$d/html"
+            if [ "$up" = missing ]; then rm "$d/html/error.html"; fi
+            cp ".github/probe/variants/$v/default.conf" "$d/conf.d/default.conf"
+            if [ "$up" = live ]; then addr="http://${gw}:3000"; else addr='http://127.0.0.1:9'; fi
+            docker run -d --name "$v-$up" -p "$port:80" \
+              -e PROXY_ADDRESS="$addr" -e USE_ONION_LOCATION=0 \
+              -v "$d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf" \
+              -v "$d/conf.d:/etc/nginx/conf.d" \
+              -v "$d/html:/usr/local/openresty/nginx/html:ro" \
+              nginx-probe > /dev/null
+            targets="$targets $v/$up=$port"
+            port=$((port + 1))
           done
           echo "TARGETS=$targets" >> "$GITHUB_ENV"
           sleep 5
