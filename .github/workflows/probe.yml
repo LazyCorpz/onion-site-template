@@ -13,56 +13,58 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
       - name: Build the nginx image
         run: docker build -t nginx-probe --target openresty-gixy src/nginx
-      - name: Start before and after, each with a live and a dead upstream
+      - name: Start each variant with a live and a dead upstream
         run: |
           set -eu
-          for v in before after; do
-            mkdir -p "/tmp/$v/conf.d"
-            cp src/nginx/conf/nginx.conf "/tmp/$v/nginx.conf"
-            cp -r src/nginx/html "/tmp/$v/html"
-          done
-          git show 712ff63:src/nginx/conf/conf.d/default.conf > /tmp/before/conf.d/default.conf
-          cp src/nginx/conf/conf.d/default.conf /tmp/after/conf.d/default.conf
-          diff /tmp/before/conf.d/default.conf /tmp/after/conf.d/default.conf || true
           mkdir -p /tmp/www && echo 'upstream ok' > /tmp/www/index.html
           (cd /tmp/www && nohup python3 -m http.server 3000 --bind 0.0.0.0 > /tmp/www.log 2>&1 &)
           gw=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
-          start() {
-            docker run -d --name "$1" -p "$2:80" \
-              -e PROXY_ADDRESS="$4" -e USE_ONION_LOCATION=0 \
-              -v "/tmp/$3/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf" \
-              -v "/tmp/$3/conf.d:/etc/nginx/conf.d" \
-              -v "/tmp/$3/html:/usr/local/openresty/nginx/html:ro" \
-              nginx-probe
-          }
-          start before-live 8081 before "http://${gw}:3000"
-          start before-dead 8082 before "http://127.0.0.1:9"
-          start after-live 8083 after "http://${gw}:3000"
-          start after-dead 8084 after "http://127.0.0.1:9"
-          for port in 8081 8082 8083 8084; do
-            for i in $(seq 1 30); do
-              curl -s -o /dev/null "http://127.0.0.1:${port}/" && break
-              sleep 1
+          port=8081
+          targets=''
+          for v in before uri uri494 lua luauri; do
+            for up in live dead; do
+              d="/tmp/run/$v-$up"
+              mkdir -p "$d/conf.d"
+              cp src/nginx/conf/nginx.conf "$d/nginx.conf"
+              cp -r src/nginx/html "$d/html"
+              cp ".github/probe/variants/$v/default.conf" "$d/conf.d/default.conf"
+              if [ "$up" = live ]; then addr="http://${gw}:3000"; else addr='http://127.0.0.1:9'; fi
+              docker run -d --name "$v-$up" -p "$port:80" \
+                -e PROXY_ADDRESS="$addr" -e USE_ONION_LOCATION=0 \
+                -v "$d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf" \
+                -v "$d/conf.d:/etc/nginx/conf.d" \
+                -v "$d/html:/usr/local/openresty/nginx/html:ro" \
+                nginx-probe > /dev/null
+              targets="$targets $v/$up=$port"
+              port=$((port + 1))
             done
           done
-          for c in before-live before-dead after-live after-dead; do
-            echo "::group::${c} (gixy + openresty log)"
+          echo "TARGETS=$targets" >> "$GITHUB_ENV"
+          sleep 5
+          for t in $targets; do
+            p=${t#*=}
+            for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:${p}/" && break; sleep 1; done
+          done
+          for c in $(docker ps -a --format '{{.Names}}'); do
+            echo "::group::${c}"
             docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' "$c"
-            docker logs "$c" 2>&1 | tail -40
+            docker logs "$c" 2>&1 | grep -E 'Total issues|No issues|High:|Medium:|Low:|\[emerg\]|\[error\]|\[alert\]' | head -12
             echo "::endgroup::"
           done
       - name: Sweep
-        run: python3 .github/probe/sweep.py "$GITHUB_STEP_SUMMARY"
-      - name: Bodies for TRACE and a 2 MiB POST, before and after
+        run: python3 .github/probe/sweep.py "$GITHUB_STEP_SUMMARY" $TARGETS
+      - name: Raw replies for the interesting cases
         run: |
-          for port in 8082 8084; do
-            echo "=== port ${port}: TRACE"; curl -s -i -X TRACE "http://127.0.0.1:${port}/" | head -30
-            echo "=== port ${port}: POST 2 MiB"; head -c 2097152 /dev/zero | curl -s -i -X POST --data-binary @- "http://127.0.0.1:${port}/" | head -30
+          for t in $TARGETS; do
+            p=${t#*=}
+            echo "===== $t"
+            printf 'get / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' | nc -q 3 127.0.0.1 "$p" | head -3
+            curl -s -i "http://127.0.0.1:${p}/error.html" | grep -E '^HTTP/|<h1>|<title>|upstream ok|Error response' | head -3
+            curl -s -i -X TRACE "http://127.0.0.1:${p}/" | grep -E '^HTTP/|<h1>|openresty' | head -3
           done
-      - name: nginx error logs
+      - name: nginx logs
         if: always()
-        run: for c in before-dead after-dead; do echo "== $c"; docker logs "$c" 2>&1 | tail -30; done
+        run: for c in $(docker ps -a --format '{{.Names}}'); do echo "== $c"; docker logs "$c" 2>&1 | grep -v '^\s*$' | tail -8; done

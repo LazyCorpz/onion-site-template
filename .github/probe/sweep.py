@@ -2,7 +2,7 @@
 import socket
 import sys
 
-TARGETS = [('before/live', 8081), ('before/dead', 8082), ('after/live', 8083), ('after/dead', 8084)]
+TARGETS = [(a.split('=')[0], int(a.split('=')[1])) for a in sys.argv[2:]]
 H = 'Host: localhost\r\nConnection: close\r\n'
 
 
@@ -32,6 +32,7 @@ CASES = [
     ('Cookie 20 KB', req('GET / HTTP/1.1', H + 'Cookie: c=' + 'x' * 20000 + '\r\n')),
     ('TE + CL', req('POST / HTTP/1.1', H + 'Transfer-Encoding: chunked\r\nContent-Length: 3\r\n', b'0\r\n\r\n')),
     ('GET /error.html', req('GET /error.html HTTP/1.1')),
+    ('GET /nonexistent', req('GET /nonexistent HTTP/1.1')),
 ]
 
 
@@ -83,7 +84,7 @@ def classify(data):
 
 
 rows = []
-leaks = {'before': 0, 'after': 0}
+leaks = {t[0].split('/')[0]: 0 for t in TARGETS}
 for name, raw in CASES:
     cells = []
     for label, port in TARGETS:
@@ -98,9 +99,9 @@ for name, raw in CASES:
 
 out = ['| request | ' + ' | '.join(t[0] for t in TARGETS) + ' |', '|---' * (len(TARGETS) + 1) + '|'] + rows
 out.append('')
-out.append('replies that name the server: before %d, after %d' % (leaks['before'], leaks['after']))
+out.append('replies that name the server: ' + ', '.join('%s %d' % kv for kv in leaks.items()))
 text = '\n'.join(out)
 print(text)
-if len(sys.argv) > 1:
+if sys.argv[1] != '-':
     with open(sys.argv[1], 'a') as f:
         f.write(text + '\n')
