@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: probe
+
+# Scratch probe, never merged: which restart policies bring a container back
+# after the Docker daemon restarts, depending on how it exited at shutdown
+on:
+  push:
+    branches: [scratch-restart-probe]
+
+permissions: {}
+
+jobs:
+  daemon-restart:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Restart the daemon under each policy
+        run: |
+          set -eu
+          docker info --format 'Docker {{.ServerVersion}}, live-restore {{.LiveRestoreEnabled}}'
+          exit0='trap "exit 0" TERM; while :; do sleep 1; done'
+          ignore='trap "" TERM; while :; do sleep 1; done'
+          for policy in no on-failure always unless-stopped; do
+            docker run -d --name "${policy}-exit0" --restart "${policy}" alpine:3 sh -c "${exit0}" > /dev/null
+            docker run -d --name "${policy}-killed" --restart "${policy}" alpine:3 sh -c "${ignore}" > /dev/null
+          done
+          # Past the 10 s after which Docker resets its restart backoff
+          sleep 12
+          before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          sudo systemctl restart docker
+          sleep 20
+          echo "daemon restarted after ${before}"
+          for policy in no on-failure always unless-stopped; do
+            for how in exit0 killed; do
+              docker inspect -f '{{.Name}}: running {{.State.Running}}, exit code {{.State.ExitCode}}, started {{.State.StartedAt}}, restarts {{.RestartCount}}' "${policy}-${how}"
+            done
+          done
