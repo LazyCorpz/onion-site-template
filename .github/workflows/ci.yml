@@ -6,7 +6,7 @@ name: CI
 # than on the pull request. Running on a merge commit reports them here.
 on:
   push:
-    branches: [main]
+    branches: [main, scratch-template-hardening]
   pull_request:
     branches: [main]
 
